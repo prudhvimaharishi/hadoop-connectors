@@ -214,6 +214,9 @@ public class GoogleHadoopFileSystem extends FileSystem implements IOStatisticsSo
   /** Underlying GCS file system object. */
   private Supplier<GoogleCloudStorageFileSystem> gcsFsSupplier;
 
+  // Cache for input stream data
+  private GcsObjectStore objectCache = null;
+
   private Supplier<VectoredIOImpl> vectoredIOSupplier;
 
   private boolean gcsFsInitialized = false;
@@ -310,6 +313,9 @@ public class GoogleHadoopFileSystem extends FileSystem implements IOStatisticsSo
                 GhfsStorageStatistics.NAME,
                 () -> new GhfsStorageStatistics(instrumentation.getIOStatistics()));
 
+    // Initialize input stream cache
+    this.objectCache =
+    new GcsObjectStore(/*maxObjects=*/ 100, /*maxBytesPerObject=*/ 1024 * 1024 * 10, /*expiryMs=*/ 1000 * 60 * 5);
     initializeVectoredIO(config, globalStorageStatistics, statistics);
 
     initializeGcsFs(config);
@@ -593,7 +599,23 @@ public class GoogleHadoopFileSystem extends FileSystem implements IOStatisticsSo
           logger.atFiner().log(
               "open(hadoopPath: %s, bufferSize: %d [ignored])", hadoopPath, bufferSize);
           URI gcsPath = getGcsPath(hadoopPath);
-          return new FSDataInputStream(GoogleHadoopFSInputStream.create(this, gcsPath, statistics));
+
+          // Create the underlying input stream
+          GoogleHadoopFSInputStream underlyingStream =
+              GoogleHadoopFSInputStream.create(this, gcsPath, statistics);
+
+          // Wrap with cache if enabled
+          if (objectCache != null) {
+              // Use StorageResourceId as cache key
+              StorageResourceId resourceId = StorageResourceId.fromUriPath(gcsPath, /*allowEmptyObjectName=*/ false);
+              logger.atFine().log("Using cached input stream for %s", resourceId.toString());
+              CachedGoogleHadoopFsInputStream cachedStream =
+                  new CachedGoogleHadoopFsInputStream(underlyingStream, objectCache, resourceId);
+              return new FSDataInputStream(cachedStream);
+          } else {
+              // Return the original stream if cache is disabled
+              return new FSDataInputStream(underlyingStream);
+          }
         });
   }
 
