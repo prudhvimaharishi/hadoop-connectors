@@ -175,6 +175,15 @@ class GoogleHadoopFSInputStream extends FSInputStream implements IOStatisticsSou
   @Override
   public void readVectored(List<? extends FileRange> ranges, IntFunction<ByteBuffer> allocate)
       throws IOException {
+
+    String fileRanges = "";
+    for (FileRange range : ranges) {
+      fileRanges += "[" + range.getOffset() + "," + range.getLength() + "],";
+    }
+
+    logger.atInfo().log(
+        "HadoopInputstream hashcode %d Operation readVectored(%s) took %d milliseconds for %s.",
+        this.hashCode(), fileRanges, -1, this.gcsPath);
     trackDuration(
         streamStatistics,
         STREAM_READ_VECTORED_OPERATIONS.getSymbol(),
@@ -190,6 +199,7 @@ class GoogleHadoopFSInputStream extends FSInputStream implements IOStatisticsSou
   @Override
   public synchronized int read() throws IOException {
     checkNotClosed();
+    long start = System.nanoTime();
     int numRead = read(singleReadBuf, /* offset= */ 0, /* length= */ 1);
     checkState(
         numRead == -1 || numRead == 1,
@@ -197,6 +207,11 @@ class GoogleHadoopFSInputStream extends FSInputStream implements IOStatisticsSou
         numRead,
         gcsPath,
         channel.position());
+    long end = System.nanoTime();
+    long duration = end - start;
+    logger.atInfo().log(
+        "Inputstream hashcode %d Operation read() took %d milliseconds for %s.",
+        this.hashCode(), duration / 1_000_000, this.gcsPath);
     return numRead > 0 ? singleReadBuf[0] & 0xff : numRead;
   }
 
@@ -235,6 +250,11 @@ class GoogleHadoopFSInputStream extends FSInputStream implements IOStatisticsSou
           }
           streamStatistics.bytesRead(max(response, 0));
           streamStatistics.readOperationCompleted(length, max(response, 0));
+          long end = System.nanoTime();
+          long duration = end - startTimeNs;
+          logger.atInfo().log(
+              "HadoopInputstream hashcode %d Operation read(_,%d,%d) took %d milliseconds for %s.",
+              this.hashCode(), offset, length, duration / 1_000_000, this.gcsPath);
           return response;
         });
   }
@@ -264,8 +284,11 @@ class GoogleHadoopFSInputStream extends FSInputStream implements IOStatisticsSou
             GoogleCloudStorageEventBus.postOnException();
             throw new IOException(e);
           }
-
+          long duration = System.nanoTime() - startTimeNs;
           seekStreamStats.updateReadStreamSeekStats(startTimeNs);
+          logger.atInfo().log(
+              "HaddoopInputstream hashcode %d Operation seek(%d) took %d milliseconds for %s.",
+              this.hashCode(), pos, duration / 1_000_000, this.gcsPath);
           return null;
         });
   }

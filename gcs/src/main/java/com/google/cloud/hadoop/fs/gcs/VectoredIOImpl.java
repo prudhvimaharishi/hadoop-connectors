@@ -195,7 +195,7 @@ public class VectoredIOImpl implements Closeable {
 
       // making it ready for reading
       readContent.flip();
-      logger.atFiner().log(
+      logger.atInfo().log(
           "Read combinedFileRange completed from range: %s, path: %s, readBytes: %d",
           combinedFileRange, channelProvider.gcsPath, numRead);
       if (numRead < 0) {
@@ -286,7 +286,7 @@ public class VectoredIOImpl implements Closeable {
       }
       range.getData().complete(dst);
       updateBytesRead(range.getLength());
-      logger.atFiner().log(
+      logger.atInfo().log(
           "Read single range completed from range: %s, path: %s", range, channelProvider.gcsPath);
     } catch (Exception e) {
       logger.atWarning().withCause(e).log(
