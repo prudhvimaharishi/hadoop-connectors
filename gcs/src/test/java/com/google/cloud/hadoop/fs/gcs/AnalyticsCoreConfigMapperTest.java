@@ -546,6 +546,21 @@ public class AnalyticsCoreConfigMapperTest {
     assertThat(mapped).doesNotContainKey("fs.gs." + AnalyticsCoreConfigMapper.AUTH_TYPE_KEY);
   }
 
+  @Test
+  public void mapConfigs_whenIncludeAuthIdentityIsFalse_omitsIdentityButKeepsTransport() {
+    Configuration config = new Configuration();
+    config.set("fs.gs.auth.type", "SERVICE_ACCOUNT_JSON_KEYFILE");
+    config.set("fs.gs.proxy.address", "proxy-host:1234");
+
+    Map<String, String> mapped =
+        AnalyticsCoreConfigMapper.mapConfigs(
+            config, "fs.gs.", /* includeAuthIdentity= */ false);
+
+    assertThat(mapped).doesNotContainKey("fs.gs." + AnalyticsCoreConfigMapper.AUTH_TYPE_KEY);
+    assertThat(mapped.get("fs.gs." + AnalyticsCoreConfigMapper.PROXY_ADDRESS_KEY))
+        .isEqualTo("proxy-host:1234");
+  }
+
   private static Configuration createTransportConfiguration() {
     Configuration config = new Configuration();
     config.set(

@@ -290,6 +290,31 @@ public class HadoopCredentialsConfigurationTest {
   }
 
   @Test
+  public void getAccessTokenProvider_whenAccessTokenProviderConfigured_returnsProvider()
+      throws Exception {
+    configuration.setEnum("fs.gs.auth.type", AuthenticationType.ACCESS_TOKEN_PROVIDER);
+    configuration.setClass(
+        "fs.gs.auth.access.token.provider",
+        TestingAccessTokenProvider.class,
+        AccessTokenProvider.class);
+
+    AccessTokenProvider provider =
+        HadoopCredentialsConfiguration.getAccessTokenProvider(configuration, "fs.gs");
+
+    assertThat(provider).isInstanceOf(TestingAccessTokenProvider.class);
+  }
+
+  @Test
+  public void getAccessTokenProvider_whenOtherAuthTypeConfigured_returnsNull() throws Exception {
+    configuration.setEnum("fs.gs.auth.type", AuthenticationType.COMPUTE_ENGINE);
+
+    AccessTokenProvider provider =
+        HadoopCredentialsConfiguration.getAccessTokenProvider(configuration, "fs.gs");
+
+    assertThat(provider).isNull();
+  }
+
+  @Test
   public void getImpersonationServiceAccount_userMatchOverridesGroupAndStatic() throws Exception {
     String currentUser = UserGroupInformation.getCurrentUser().getShortUserName();
     configuration.set(

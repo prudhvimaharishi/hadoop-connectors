@@ -206,6 +206,21 @@ final class AnalyticsCoreConfigMapper {
    * @return A map containing the mapped properties.
    */
   static Map<String, String> mapConfigs(Configuration config, String prefix) {
+    return mapConfigs(config, prefix, /* includeAuthIdentity= */ true);
+  }
+
+  /**
+   * Maps configurations from Hadoop Configuration to a map suitable for Analytics Core.
+   *
+   * @param config The Hadoop configuration.
+   * @param prefix The prefix used for Analytics Core properties (e.g., "fs.gs.").
+   * @param includeAuthIdentity Whether to map identity settings onto {@code
+   *     analytics-core.auth.*}. Set to {@code false} when Hadoop injects a token-provider
+   *     credential directly.
+   * @return A map containing the mapped properties.
+   */
+  static Map<String, String> mapConfigs(
+      Configuration config, String prefix, boolean includeAuthIdentity) {
     Map<String, String> mappedProperties = config.getValByRegex("^" + prefix.replace(".", "\\."));
 
     // Direct mappings from Connector to Analytics Core
@@ -263,7 +278,9 @@ final class AnalyticsCoreConfigMapper {
         prefix + DECRYPTION_KEY_KEY);
 
     mapTransportConfigs(config, prefix, mappedProperties);
-    mapAuthIdentityConfigs(config, prefix, mappedProperties);
+    if (includeAuthIdentity) {
+      mapAuthIdentityConfigs(config, prefix, mappedProperties);
+    }
     removeConnectorAuthKeys(prefix, mappedProperties);
 
     return mappedProperties;

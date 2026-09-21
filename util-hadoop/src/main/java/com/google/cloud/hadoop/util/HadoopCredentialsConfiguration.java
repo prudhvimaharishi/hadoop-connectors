@@ -202,6 +202,33 @@ public class HadoopCredentialsConfiguration {
     return credentials == null ? null : configureCredentials(config, keyPrefixes, credentials);
   }
 
+  /**
+   * Returns the configured {@link AccessTokenProvider} when {@link
+   * AuthenticationType#ACCESS_TOKEN_PROVIDER} is selected, or {@code null} for all other
+   * authentication types.
+   */
+  public static AccessTokenProvider getAccessTokenProvider(
+      Configuration config, String... keyPrefixesVararg) throws IOException {
+    List<String> keyPrefixes = getConfigKeyPrefixes(keyPrefixesVararg);
+    AuthenticationType authenticationType =
+        AUTHENTICATION_TYPE_SUFFIX.withPrefixes(keyPrefixes).get(config, config::getEnum);
+    if (authenticationType != AuthenticationType.ACCESS_TOKEN_PROVIDER) {
+      return null;
+    }
+    Class<? extends AccessTokenProvider> clazz =
+        ACCESS_TOKEN_PROVIDER_SUFFIX
+            .withPrefixes(keyPrefixes)
+            .get(config, (k, d) -> config.getClass(k, d, AccessTokenProvider.class));
+    AccessTokenProvider accessTokenProvider;
+    try {
+      accessTokenProvider = clazz.getDeclaredConstructor().newInstance();
+    } catch (ReflectiveOperationException e) {
+      throw new IOException("Can't instantiate " + clazz.getName(), e);
+    }
+    accessTokenProvider.setConf(config);
+    return accessTokenProvider;
+  }
+
   private static GoogleCredentials getCredentialsInternal(
       Supplier<HttpTransport> transport, Configuration config, List<String> keyPrefixes)
       throws IOException {
@@ -209,18 +236,8 @@ public class HadoopCredentialsConfiguration {
         AUTHENTICATION_TYPE_SUFFIX.withPrefixes(keyPrefixes).get(config, config::getEnum);
     switch (authenticationType) {
       case ACCESS_TOKEN_PROVIDER:
-        Class<? extends AccessTokenProvider> clazz =
-            ACCESS_TOKEN_PROVIDER_SUFFIX
-                .withPrefixes(keyPrefixes)
-                .get(config, (k, d) -> config.getClass(k, d, AccessTokenProvider.class));
-        AccessTokenProvider accessTokenProvider;
-        try {
-          accessTokenProvider = clazz.getDeclaredConstructor().newInstance();
-        } catch (ReflectiveOperationException e) {
-          throw new IOException("Can't instantiate " + clazz.getName(), e);
-        }
-        accessTokenProvider.setConf(config);
-        return new AccessTokenProviderCredentials(accessTokenProvider);
+        return new AccessTokenProviderCredentials(
+            getAccessTokenProvider(config, keyPrefixes.toArray(new String[0])));
       case APPLICATION_DEFAULT:
         return GoogleCredentials.getApplicationDefault(transport::get);
       case COMPUTE_ENGINE:

@@ -30,6 +30,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 import com.google.auth.oauth2.GoogleCredentials;
+import com.google.cloud.gcs.analyticscore.client.auth.AuthType;
 import com.google.cloud.hadoop.gcsio.FileInfo;
 import com.google.cloud.hadoop.gcsio.GoogleCloudStorageFileSystem;
 import com.google.cloud.hadoop.gcsio.GoogleCloudStorageFileSystemImpl;
@@ -66,6 +67,7 @@ import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.permission.FsPermission;
+import org.apache.hadoop.security.UserGroupInformation;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -772,6 +774,62 @@ public class GoogleHadoopFileSystemTest extends GoogleHadoopFileSystemIntegratio
     fs.initialize(new URI("gs://foobar/"), config);
 
     assertThat(fs.isAnalyticsCoreEnabled()).isTrue();
+  }
+
+  @Test
+  public void initialize_unauthenticatedAndAnalyticsCoreEnabled_succeeds() throws Exception {
+    Configuration config = new Configuration();
+    config.setEnum("fs.gs.auth.type", AuthenticationType.UNAUTHENTICATED);
+    config.setBoolean("fs.gs.analytics.core.enable", true);
+    GoogleHadoopFileSystem fs = new GoogleHadoopFileSystem();
+
+    fs.initialize(new URI("gs://foobar/"), config);
+
+    assertThat(
+            fs.getAnalyticsCoreGcsFs().getFileSystemOptions().getGcsAuthOptions().getAuthType())
+        .isEqualTo(AuthType.UNAUTHENTICATED);
+  }
+
+  @Test
+  public void initialize_userCredentialsAndAnalyticsCoreEnabled_usesConfigBasedAuth()
+      throws Exception {
+    Configuration config = new Configuration();
+    config.setEnum("fs.gs.auth.type", AuthenticationType.USER_CREDENTIALS);
+    config.set("fs.gs.auth.client.id", "test-client-id");
+    config.set("fs.gs.auth.client.secret", "test-client-secret");
+    config.set("fs.gs.auth.refresh.token", "test-refresh-token");
+    config.setBoolean("fs.gs.analytics.core.enable", true);
+    GoogleHadoopFileSystem fs = new GoogleHadoopFileSystem();
+
+    fs.initialize(new URI("gs://foobar/"), config);
+
+    assertThat(
+            fs.getAnalyticsCoreGcsFs().getFileSystemOptions().getGcsAuthOptions().getAuthType())
+        .isEqualTo(AuthType.USER_CREDENTIALS);
+  }
+
+  @Test
+  public void
+      initialize_perUserImpersonationAndAnalyticsCoreEnabled_passesImpersonationToAnalyticsCore()
+          throws Exception {
+    Configuration config = new Configuration();
+    String currentUser = UserGroupInformation.getCurrentUser().getShortUserName();
+    config.setEnum("fs.gs.auth.type", AuthenticationType.COMPUTE_ENGINE);
+    config.set(
+        "fs.gs.auth.impersonation.service.account.for.user." + currentUser,
+        "user-sa@proj.iam.gserviceaccount.com");
+    config.setBoolean("fs.gs.analytics.core.enable", true);
+    GoogleHadoopFileSystem fs = new GoogleHadoopFileSystem();
+
+    fs.initialize(new URI("gs://foobar/"), config);
+
+    assertThat(
+            fs.getAnalyticsCoreGcsFs()
+                .getFileSystemOptions()
+                .getGcsAuthOptions()
+                .getImpersonationServiceAccount()
+                .orElse(null))
+        .isEqualTo("user-sa@proj.iam.gserviceaccount.com");
   }
 
   private static Configuration accessTokenProviderConfig(

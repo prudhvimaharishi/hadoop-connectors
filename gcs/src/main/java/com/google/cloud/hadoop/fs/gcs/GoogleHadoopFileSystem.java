@@ -39,6 +39,7 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.flogger.LazyArgs.lazy;
 import static java.nio.charset.StandardCharsets.UTF_8;
 
+import com.google.auth.Credentials;
 import com.google.auth.oauth2.GoogleCredentials;
 import com.google.cloud.gcs.analyticscore.client.GcsFileInfo;
 import com.google.cloud.gcs.analyticscore.client.GcsFileSystem;
@@ -465,47 +466,64 @@ public class GoogleHadoopFileSystem extends FileSystem implements IOStatisticsSo
   }
 
   private GcsFileSystem createAnalyticsGcsFs(Configuration config) throws IOException {
-    Map<String, String> mappedProperties =
-        AnalyticsCoreConfigMapper.mapConfigs(config, GCS_CONFIG_PREFIX + ".");
+    AccessTokenProvider accessTokenProvider = getAnalyticsCoreAccessTokenProvider(config);
+    if (accessTokenProvider == null) {
+      GcsFileSystemOptions options =
+          createAnalyticsCoreOptions(config, /* includeAuthIdentity= */ true);
+      return new GcsFileSystemImpl(options);
+    }
+    Credentials credentials = getAccessTokenProviderCredentials(config, accessTokenProvider);
     GcsFileSystemOptions options =
-        GcsFileSystemOptions.createFromOptions(mappedProperties, GCS_CONFIG_PREFIX + ".");
-    GoogleCredentials credentials = getCredentials(config);
-    rejectDownscopedTokens(credentials);
+        createAnalyticsCoreOptions(config, /* includeAuthIdentity= */ false);
     return new GcsFileSystemImpl(credentials, options);
   }
 
+  private static GcsFileSystemOptions createAnalyticsCoreOptions(
+      Configuration config, boolean includeAuthIdentity) {
+    Map<String, String> mappedProperties =
+        AnalyticsCoreConfigMapper.mapConfigs(
+            config, GCS_CONFIG_PREFIX + ".", includeAuthIdentity);
+    return GcsFileSystemOptions.createFromOptions(mappedProperties, GCS_CONFIG_PREFIX + ".");
+  }
+
+  private AccessTokenProvider getAnalyticsCoreAccessTokenProvider(Configuration config)
+      throws IOException {
+    AccessTokenProvider delegationAccessTokenProvider = getDelegationAccessTokenProvider(config);
+    if (delegationAccessTokenProvider != null) {
+      return delegationAccessTokenProvider;
+    }
+    return HadoopCredentialsConfiguration.getAccessTokenProvider(config, GCS_CONFIG_PREFIX);
+  }
+
   /**
-   * Rejects credentials that issue downscoped, per-request access tokens.
+   * Builds the {@link Credentials} injected into Analytics Core when a Hadoop {@link
+   * AccessTokenProvider} (either from delegation tokens or {@code ACCESS_TOKEN_PROVIDER}) is
+   * active.
    *
-   * <p>Analytics Core accepts a single credential for the lifetime of the filesystem, so the
-   * per-request Credential Access Boundary tokens that {@link #createGcsFs} installs have no
-   * equivalent here. Downscoping is rejected rather than ignored: falling back to the provider's
-   * broad token would widen the access boundary the operator configured, on reads that look
-   * identical to every other read.
-   *
-   * @param credentials The credentials resolved for this filesystem.
-   * @throws IOException If the configured {@link AccessTokenProvider} issues downscoped tokens,
-   *     which Analytics Core cannot honor.
+   * <p>All other authentication mechanisms are handled directly by Analytics Core's config-based
+   * {@link GcsFileSystemImpl#GcsFileSystemImpl(GcsFileSystemOptions)} constructor.
    */
-  private static void rejectDownscopedTokens(GoogleCredentials credentials) throws IOException {
-    if (!(credentials instanceof AccessTokenProviderCredentials)) {
-      return;
+  private Credentials getAccessTokenProviderCredentials(
+      Configuration config, AccessTokenProvider accessTokenProvider) throws IOException {
+    if (accessTokenProvider.getAccessTokenType() == AccessTokenType.DOWNSCOPED) {
+      throw new IOException(
+          String.format(
+              "Analytics Core (%s / %s) does not support %s access tokens, which would be silently"
+                  + " broadened to the provider's full scope. Disable Analytics Core or configure"
+                  + " an %s that issues %s tokens.",
+              GCS_ANALYTICS_CORE_ENABLE.getKey(),
+              GCS_ANALYTICS_CORE_WRITE_ENABLE.getKey(),
+              AccessTokenType.DOWNSCOPED,
+              AccessTokenProvider.class.getSimpleName(),
+              AccessTokenType.GENERIC));
     }
-    AccessTokenProvider accessTokenProvider =
-        ((AccessTokenProviderCredentials) credentials).getAccessTokenProvider();
-    if (accessTokenProvider.getAccessTokenType() != AccessTokenType.DOWNSCOPED) {
-      return;
-    }
-    throw new IOException(
-        String.format(
-            "Analytics Core (%s / %s) does not support %s access tokens, which would be silently"
-                + " broadened to the provider's full scope. Disable Analytics Core or configure an"
-                + " %s that issues %s tokens.",
-            GCS_ANALYTICS_CORE_ENABLE.getKey(),
-            GCS_ANALYTICS_CORE_WRITE_ENABLE.getKey(),
-            AccessTokenType.DOWNSCOPED,
-            AccessTokenProvider.class.getSimpleName(),
-            AccessTokenType.GENERIC));
+
+    GoogleCredentials credentials =
+        new AccessTokenProviderCredentials(accessTokenProvider).createScoped(CLOUD_PLATFORM_SCOPE);
+    return Optional.ofNullable(
+            HadoopCredentialsConfiguration.getImpersonatedCredentials(
+                config, credentials, GCS_CONFIG_PREFIX))
+        .orElse(credentials);
   }
 
   private GoogleCloudStorageFileSystem createGcsFs(Configuration config) throws IOException {
