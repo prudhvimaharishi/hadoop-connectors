@@ -395,6 +395,28 @@ public class AnalyticsCoreConfigMapperTest {
   }
 
   @Test
+  public void mapConfigs_zeroConnectTimeout_mapsToLongestAnalyticsCoreTimeout() {
+    Configuration config = new Configuration();
+    config.set(GoogleHadoopFileSystemConfiguration.GCS_HTTP_CONNECT_TIMEOUT.getKey(), "0");
+
+    Map<String, String> mapped = AnalyticsCoreConfigMapper.mapConfigs(config, "fs.gs.");
+
+    assertThat(mapped.get("fs.gs." + AnalyticsCoreConfigMapper.CONNECT_TIMEOUT_KEY))
+        .isEqualTo(String.valueOf(Integer.MAX_VALUE));
+  }
+
+  @Test
+  public void mapConfigs_zeroReadTimeout_mapsToLongestAnalyticsCoreTimeout() {
+    Configuration config = new Configuration();
+    config.set("fs.gs.http.read-timeout", "0");
+
+    Map<String, String> mapped = AnalyticsCoreConfigMapper.mapConfigs(config, "fs.gs.");
+
+    assertThat(mapped.get("fs.gs." + AnalyticsCoreConfigMapper.READ_TIMEOUT_KEY))
+        .isEqualTo(String.valueOf(Integer.MAX_VALUE));
+  }
+
+  @Test
   public void mapConfigs_transportSettingsUnset_omitsAnalyticsCoreKeys() {
     Configuration config = new Configuration();
 

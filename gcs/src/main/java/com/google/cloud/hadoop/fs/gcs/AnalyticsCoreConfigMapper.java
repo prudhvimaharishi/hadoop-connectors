@@ -466,7 +466,11 @@ final class AnalyticsCoreConfigMapper {
     if (!isExplicitlySet) {
       return;
     }
-    map.putIfAbsent(analyticsCoreKey, String.valueOf(property.getTimeDuration(config).toMillis()));
+    long timeoutMillis = property.getTimeDuration(config).toMillis();
+    // Hadoop treats 0 as no timeout, but Analytics Core requires a positive timeout, so 0 maps to
+    // the longest timeout Analytics Core accepts.
+    map.putIfAbsent(
+        analyticsCoreKey, String.valueOf(timeoutMillis == 0 ? Integer.MAX_VALUE : timeoutMillis));
   }
 
   private static void mapAndRemoveSource(
